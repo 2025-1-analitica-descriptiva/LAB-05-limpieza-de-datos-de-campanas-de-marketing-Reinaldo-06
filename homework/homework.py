@@ -3,6 +3,9 @@ Escriba el codigo que ejecute la accion solicitada.
 """
 
 # pylint: disable=import-outside-toplevel
+import os 
+import pandas as pd
+import zipfile
 
 
 def clean_campaign_data():
@@ -49,9 +52,79 @@ def clean_campaign_data():
 
 
     """
+ # pylint: disable=import-outside-toplevel
+# flake8: noqa: E501
 
-    return
+
+    input_dir = "./files/input"
+    output_dir = "./files/output"
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Acumuladores para cada tabla
+    clients_all = []
+    campaigns_all = []
+    economics_all = []
+
+    # Procesar todos los .zip en la carpeta input
+    for file in os.listdir(input_dir):
+        if file.endswith(".zip"):
+            with zipfile.ZipFile(os.path.join(input_dir, file), 'r') as zipf:
+                for name in zipf.namelist():
+                    if name.endswith(".csv"):
+                        with zipf.open(name) as f:
+                            df = pd.read_csv(f)
+
+                            # === CLIENT ===
+                            df_client = df[[
+                                "client_id", "age", "job", "marital",
+                                "education", "credit_default", "mortgage"
+                            ]].copy()
+
+                            df_client["job"] = df_client["job"].str.replace(r"[.]", "", regex=True)
+                            df_client["job"] = df_client["job"].str.replace(r"[-]", "_", regex=True)
+                            df_client["education"] = df_client["education"].str.replace(".", "_", regex=False)
+                            df_client["education"] = df_client["education"].replace("unknown", pd.NA)
+                            df_client["credit_default"] = (df_client["credit_default"] == "yes").astype(int)
+                            df_client["mortgage"] = (df_client["mortgage"] == "yes").astype(int)
+
+                            clients_all.append(df_client)
+
+                            # === CAMPAIGN ===
+                            df_campaign = df[[
+                                "client_id", "number_contacts", "contact_duration",
+                                "previous_campaign_contacts", "previous_outcome",
+                                "campaign_outcome", "day", "month"
+                            ]].copy()
+
+                            df_campaign["previous_outcome"] = (df_campaign["previous_outcome"] == "success").astype(int)
+                            df_campaign["campaign_outcome"] = (df_campaign["campaign_outcome"] == "yes").astype(int)
+
+                            # Crear 'last_contact_date' en formato 'YYYY-MM-DD'
+                            df_campaign["last_contact_date"] = pd.to_datetime(
+                                df_campaign["day"].astype(str) + "-" + df_campaign["month"] + "-2022",
+                                format="%d-%b-%Y"
+                            ).dt.strftime("%Y-%m-%d")
+
+                            df_campaign = df_campaign.drop(columns=["day", "month"])
+                            campaigns_all.append(df_campaign)
+
+                            # === ECONOMICS ===
+                            df_econ = df[["client_id", "cons_price_idx", "euribor_three_months"]].copy()
+                            economics_all.append(df_econ)
+
+    # Unir datos de múltiples archivos si es necesario
+    df_client = pd.concat(clients_all, ignore_index=True)
+    df_campaign = pd.concat(campaigns_all, ignore_index=True)
+    df_economics = pd.concat(economics_all, ignore_index=True)
+
+    # Guardar resultados
+    df_client.to_csv(os.path.join(output_dir, "client.csv"), index=False)
+    df_campaign.to_csv(os.path.join(output_dir, "campaign.csv"), index=False)
+    df_economics.to_csv(os.path.join(output_dir, "economics.csv"), index=False)
+
+    print("✅ Archivos guardados correctamente en ./files/output")
 
 
+# Ejecutar si se llama directamente
 if __name__ == "__main__":
     clean_campaign_data()
